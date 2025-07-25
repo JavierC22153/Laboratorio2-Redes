@@ -1,6 +1,7 @@
 import java.net.*;
 import java.io.*;
 import java.util.Properties;
+import java.util.Random;
 
 public class Connector {
     
@@ -8,10 +9,26 @@ public class Connector {
     private static int HAMMING_PORT;
     private static int CRC_PORT;
     private static String PAYLOAD;
-    
+    private static String valorBinario;
+
 
     static {
         loadEnvConfig();
+    }
+
+    public static String aplicarRuido(String valorBinario, double probabilidad) {
+        Random random = new Random();
+        StringBuilder resultado = new StringBuilder();
+
+        for (char bit : valorBinario.toCharArray()) {
+            if (random.nextDouble() < probabilidad) {
+                resultado.append(bit == '0' ? '1' : '0');
+            } else {
+                resultado.append(bit);
+            }
+        }
+
+        return resultado.toString();
     }
     
     private static void loadEnvConfig() {
@@ -65,15 +82,35 @@ public class Connector {
         System.out.println("=== MODO EMISOR (CRC) ===");
         System.out.println("Conectando a " + HOST + ":" + port);
         
-        // AF_INET = IPv4, SOCK_STREAM = TCP
+        
         try (Socket socket = new Socket(InetAddress.getByName(HOST), port);
              OutputStreamWriter writer = new OutputStreamWriter(socket.getOutputStream())) {
             
             System.out.println("Conexión establecida");
-            System.out.println("Enviando: " + PAYLOAD);
+
+
+            //capa de aplicacion
+
+            PAYLOAD = "Hola";
+
+            //capa de presentacion
+
+            Coder micodificador = new Coder();
+
+            valorBinario = micodificador.coder_funct(PAYLOAD).replace(" ", "");
+            CRC32Emisor emisor = new CRC32Emisor();
+            valorBinario = emisor.generarTramaConCRC(valorBinario);
             
-            // Enviar payload
-            writer.write(PAYLOAD);
+
+            System.out.println("Enviando: " + valorBinario);
+            
+
+            // Capa de ruido
+            
+            valorBinario = aplicarRuido(valorBinario, 0.1);
+
+            // capa de enlace
+            writer.write(valorBinario);
             writer.flush();
             
             Thread.sleep(100); // Pausa opcional
@@ -93,7 +130,7 @@ public class Connector {
 
         try (ServerSocket serverSocket = new ServerSocket()) {
             
-            // bind() - reserva/asigna el socket a IP:puerto específica
+           
             serverSocket.bind(new InetSocketAddress(HOST, port));
             
             System.out.println("Servidor iniciado, esperando conexiones...");
