@@ -1,7 +1,9 @@
 import java.net.*;
 import java.io.*;
+import java.util.Arrays;
 import java.util.Properties;
 import java.util.Random;
+import java.util.Scanner;
 
 public class Connector {
     
@@ -87,11 +89,16 @@ public class Connector {
              OutputStreamWriter writer = new OutputStreamWriter(socket.getOutputStream())) {
             
             System.out.println("Conexión establecida");
-
-
+            
             //capa de aplicacion
+            Scanner scanner = new Scanner(System.in);
+            System.out.print("Escriba su mensaje: ");
+            String PAYLOAD = scanner.nextLine();
+            
+            scanner.close();
 
-            PAYLOAD = "Hola";
+
+
 
             //capa de presentacion
 
@@ -101,14 +108,14 @@ public class Connector {
             CRC32Emisor emisor = new CRC32Emisor();
             valorBinario = emisor.generarTramaConCRC(valorBinario);
             
-
-            System.out.println("Enviando: " + valorBinario);
+            System.out.println("Mensaje original: " + PAYLOAD);
+            System.out.println("Trama original: " + valorBinario);
             
 
             // Capa de ruido
             
-            valorBinario = aplicarRuido(valorBinario, 0.1);
-
+            valorBinario = aplicarRuido(valorBinario, 0);
+            System.out.println("Trama con ruido: " + valorBinario);
             // capa de enlace
             writer.write(valorBinario);
             writer.flush();
@@ -158,8 +165,36 @@ public class Connector {
                 }
                 
                 if (receivedData.length() > 0) {
-                    System.out.println("Recibido:");
-                    System.out.println("\"" + receivedData.toString() + "\"");
+                    System.out.println("Trama Recibida:");
+
+                    
+                    int[] noError = new int[receivedData.toString().length()];
+                    for (int i = 0; i < receivedData.toString().length(); i++) {
+                        noError[i] = Character.getNumericValue(receivedData.toString().charAt(i));
+                    }
+                    System.out.println(Arrays.toString(noError) + "\"");
+                    GeneralizedHammingDecoder decoder = new GeneralizedHammingDecoder(12, 8);
+                    GeneralizedHammingDecoder.DecodingResult result1 = decoder.decode(noError); 
+                    System.out.println(result1);
+
+                    if (result1.getCorrectedFrame() != null) {
+                        StringBuilder sb = new StringBuilder();
+                        for (int bit : result1.getDecodedData()) {
+                            sb.append(bit);
+                        }
+
+                        String resultado = sb.toString(); 
+                        Decoder decoder_asci = new Decoder();
+                        System.out.println("Mensaje Decodificado: " + decoder_asci.decoder_funct(resultado));
+
+                    }else{
+                        System.out.println("No hay trama corregida disponible");
+                        System.out.println("Trama original sin codificar: " + Arrays.toString(noError));
+                    }
+                    
+
+                
+                
                     
                   
                 } else {
