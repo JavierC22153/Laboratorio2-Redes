@@ -1,28 +1,53 @@
-def calcular_paridad(d1, d2, d3, d4):
-    p1 = d1 ^ d2 ^ d4
-    p2 = d1 ^ d3 ^ d4
-    p3 = d2 ^ d3 ^ d4
-    return p1, p2, p3
+import math
 
-def codificar_bloque_4bits(data_bits):
-    d1, d2, d3, d4 = map(int, data_bits)
-    p1, p2, p3 = calcular_paridad(d1, d2, d3, d4)
-    return f"{p1}{p2}{d1}{p3}{d2}{d3}{d4}"
+def calcular_bits_paridad(m):
+    """Calcula la cantidad de bits de paridad necesarios."""
+    r = 0
+    while (2**r) < (m + r + 1):
+        r += 1
+    return r
 
-def hamming_codificar(data_binaria):
-    bloques = [data_binaria[i:i+4] for i in range(0, len(data_binaria), 4)]
-    resultado = ''
-    for bloque in bloques:
-        if len(bloque) < 4:
-            bloque = bloque.ljust(4, '0')  # Rellenar con ceros si no es múltiplo de 4
-        resultado += codificar_bloque_4bits(bloque)
+def insertar_paridad(bits, r):
+    """Inserta espacios para los bits de paridad (posiciones 1,2,4,...)"""
+    n = len(bits) + r
+    resultado = []
+    j = 0
+    for i in range(1, n + 1):
+        if i & (i - 1) == 0:
+            resultado.append(0)
+        else:
+            resultado.append(bits[j])
+            j += 1
     return resultado
 
-# Solo para pruebas independientes
+def calcular_paridad_total(bits, r):
+    """Calcula los bits de paridad para la trama"""
+    n = len(bits)
+    for i in range(r):
+        pos = 2**i
+        parity = 0
+        for j in range(1, n + 1):
+            if j & pos and j != pos:
+                parity ^= bits[j - 1]
+        bits[pos - 1] = parity
+    return bits
+
+def hamming_codificar(data_bits):
+    """Codifica usando Hamming (n, m) dinámico"""
+    bits = [int(b) for b in data_bits]
+    m = len(bits)
+    r = calcular_bits_paridad(m)
+    
+    # Insertar bits de paridad
+    bits_con_paridad = insertar_paridad(bits, r)
+    
+    # Calcular bits de paridad
+    trama = calcular_paridad_total(bits_con_paridad, r)
+    
+    return ''.join(map(str, trama))
+
+# Ejemplo
 if __name__ == "__main__":
-    entrada = input("Ingrese una cadena de bits (ej. 10110011): ").strip()
-    try:
-        codificado = hamming_codificar(entrada)
-        print(f"Trama codificada completa: {codificado}")
-    except ValueError as e:
-        print(f"Error: {e}")
+    entrada = input("Ingrese cadena de bits: ").strip()
+    codificado = hamming_codificar(entrada)
+    print(f"Hamming codificado: {codificado}")
