@@ -4,6 +4,7 @@ import random
 import sys
 from dotenv import load_dotenv
 from emisorhamming import hamming_codificar
+from receptorcrc32 import procesar_trama
 
 # ========================
 # Cargar configuración desde .env
@@ -12,15 +13,26 @@ load_dotenv()
 HOST = os.getenv("HOST", "localhost")
 HAMMING_PORT = int(os.getenv("HAMMING_PORT", 8000))
 CRC_PORT = int(os.getenv("CRC_PORT", 9000))
-PAYLOAD = os.getenv("PAYLOAD", "Hola Mundo desde Python")
 PROB_ERROR = float(os.getenv("ERROR_PROBABILITY", "0.01"))
 
 # ========================
-# Utilidades
+# CAPA PRESENTACIÓN
 # ========================
 def codificar_ascii_binario(mensaje):
-    return ''.join([format(ord(c), '08b') for c in mensaje])
+    return ''.join(format(ord(c), '08b') for c in mensaje)
 
+def decodificar_ascii_binario(bits):
+    chars = []
+    for i in range(0, len(bits), 8):
+        byte = bits[i:i+8]
+        if len(byte) < 8:
+            break
+        chars.append(chr(int(byte, 2)))
+    return ''.join(chars)
+
+# ========================
+# CAPA RUIDO
+# ========================
 def aplicar_ruido(bits, probabilidad):
     return ''.join(
         '1' if bit == '0' and random.random() < probabilidad
@@ -29,88 +41,73 @@ def aplicar_ruido(bits, probabilidad):
         for bit in bits
     )
 
-def crc_codificar(data):
-    poly = '10011'
-    data_padded = data + '0000'
-    data_padded = list(data_padded)
-    for i in range(len(data)):
-        if data_padded[i] == '1':
-            for j in range(len(poly)):
-                data_padded[i + j] = str(int(data_padded[i + j] != poly[j]))
-    crc = ''.join(data_padded[-4:])
-    return data + crc
+# ========================
+# MODO EMISOR
+# ========================
+def modo_emisor():
+    print("=== MODO EMISOR (Sólo Hamming) ===")
+    mensaje = input("Ingrese el mensaje a enviar: ")
+
+    binario = codificar_ascii_binario(mensaje)
+    trama = hamming_codificar(binario)
+    puerto = HAMMING_PORT
+
+    trama_ruido = aplicar_ruido(trama, PROB_ERROR)
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect((HOST, puerto))
+            s.sendall(trama_ruido.encode())
+        print(f"Mensaje enviado correctamente usando Hamming.")
+        print("Mensaje original:", mensaje)
+        print("Trama codificada:", trama)
+        print("Trama con ruido:", trama_ruido)
+    except ConnectionRefusedError:
+        print(f"No se pudo conectar al receptor en el puerto {puerto}.")
+        print("Asegúrate de que el receptor Hamming esté corriendo.")
 
 # ========================
-# Modo Receptor (servidor)
+# MODO RECEPTOR
 # ========================
-def modo_receptor(port):
-    print("=== MODO RECEPTOR (HAMMING) ===")
-    print(f"Escuchando en {HOST}:{port}...")
-    
+def modo_receptor():
+    print("=== MODO RECEPTOR (Sólo CRC) ===")
+    puerto = CRC_PORT
+
+    print(f"Escuchando en {HOST}:{puerto}...")
+
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind((HOST, port))
+        s.bind((HOST, puerto))
         s.listen()
         conn, addr = s.accept()
         with conn:
             print(f"Conexión entrante desde {addr}")
             data = conn.recv(4096)
-            if data:
-                bits = data.decode()
-                print(f"Mensaje recibido:\n\"{bits}\"\n")
+            if not data:
+                print("No se recibió mensaje.")
+                return
+
+            trama_recibida = data.decode().strip()
+            print("Trama recibida:", trama_recibida)
+
+            valido, mensaje = procesar_trama(trama_recibida)
+            if valido:
+                print("Mensaje recibido correctamente (CRC):", mensaje)
             else:
-                print("No se recibió ningún mensaje.")
+                print("Error detectado en la trama CRC.")
 
 # ========================
-# Modo Emisor (cliente)
-# ========================
-def modo_emisor(port, algoritmo):
-    print(f"=== MODO EMISOR ({algoritmo.upper()}) ===")
-    print(f"Conectando a {HOST}:{port}...")
-    
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.connect((HOST, port))
-            
-            # Codificar binario
-            binario = codificar_ascii_binario(PAYLOAD)
-            if algoritmo == "hamming":
-                binario_codificado = hamming_codificar(binario)
-            elif algoritmo == "crc":
-                binario_codificado = crc_codificar(binario)
-            else:
-                raise ValueError("Algoritmo no soportado")
-
-            # Aplicar ruido
-            binario_con_ruido = aplicar_ruido(binario_codificado, PROB_ERROR)
-
-            # Mostrar y enviar
-            print("Mensaje original:", PAYLOAD)
-            print("Binario codificado:", binario_codificado)
-            print("Binario con ruido:", binario_con_ruido)
-
-            s.sendall((binario_con_ruido + "\n").encode())
-            print("Mensaje enviado con éxito.\n")
-    except ConnectionRefusedError:
-        print(f"Error: No se pudo conectar al puerto {port}. ¿Está corriendo el receptor?")
-
-# ========================
-# Entrada principal
+# MAIN
 # ========================
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Uso: python conector.py [hamming|crc]")
+        print("Uso: python conector.py [emisor|receptor]")
         sys.exit(1)
 
     modo = sys.argv[1].lower()
 
-    if modo == "hamming":
-        modo_receptor(HAMMING_PORT)
-    elif modo == "crc":
-        modo_emisor(CRC_PORT, "crc")
-    elif modo == "hamming-emisor":
-        modo_emisor(HAMMING_PORT, "hamming")
+    if modo == "emisor":
+        modo_emisor()
+    elif modo == "receptor":
+        modo_receptor()
     else:
-        print("Modo no válido. Use uno de los siguientes:")
-        print("  hamming          → modo receptor (puerto 8000)")
-        print("  hamming-emisor   → modo emisor (puerto 8000, Hamming)")
-        print("  crc              → modo emisor (puerto 9000, CRC)")
+        print("Modo no válido. Opciones: emisor | receptor")

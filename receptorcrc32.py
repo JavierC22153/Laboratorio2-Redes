@@ -12,26 +12,38 @@ def crc32_verificar(trama_bin):
             data ^= poly << (data_len - poly_len - 1 - i)
         mask >>= 1
 
-    # Retorna True si no hay error (residuo = 0), False si hay error
     return (data & ((1 << poly_len) - 1)) == 0
 
+def binario_a_texto(bits):
+    # Convierte string de bits a texto ASCII
+    chars = []
+    for i in range(0, len(bits), 8):
+        byte = bits[i:i+8]
+        if len(byte) < 8:
+            break
+        chars.append(chr(int(byte, 2)))
+    return ''.join(chars)
 
-def main():
-    print("Receptor CRC-32 (Detección de errores)")
+# Función para procesar trama recibida
+def procesar_trama(trama_bin):
+    if len(trama_bin) < 33 or not all(c in '01' for c in trama_bin):
+        raise ValueError("Trama inválida: debe contener solo 0 y 1 y tener al menos 33 bits.")
+
+    if crc32_verificar(trama_bin):
+        mensaje_bin = trama_bin[:-32]
+        mensaje_texto = binario_a_texto(mensaje_bin)
+        return True, mensaje_texto
+    else:
+        return False, None
+
+# Opcional: modo prueba
+if __name__ == "__main__":
     trama = input("Ingrese la trama recibida (mensaje + CRC de 32 bits): ").strip()
-
     try:
-        if not all(c in '01' for c in trama) or len(trama) < 33:
-            raise ValueError("Trama inválida. Debe contener solo 0 y 1, y tener al menos 33 bits.")
-
-        if crc32_verificar(trama):
-            print("Trama válida. No se detectaron errores.")
-            print("Mensaje recibido:", trama[:-32])
+        valido, mensaje = procesar_trama(trama)
+        if valido:
+            print("Trama válida. Mensaje recibido:", mensaje)
         else:
             print("Error detectado en la trama. Se descarta el mensaje.")
     except ValueError as e:
-        print(e)
-
-
-if __name__ == "__main__":
-    main()
+        print("Error:", e)
