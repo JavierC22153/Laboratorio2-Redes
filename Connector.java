@@ -14,6 +14,7 @@ public class Connector {
     private static int CRC_PORT;
     private static String PAYLOAD;
     private static String valorBinario;
+    private static double probabilidad = 0;
     static String nombreArchivo = "salida.txt";
 
 
@@ -201,7 +202,7 @@ public class Connector {
                 System.out.println("Trama original: " + valorBinario);
                 
                 
-                valorBinario = aplicarRuido(valorBinario, 0.1);
+                valorBinario = aplicarRuido(valorBinario, probabilidad);
                 System.out.println("Trama con ruido: " + valorBinario);
                 
                 
@@ -219,7 +220,7 @@ public class Connector {
                 }
             }
             
-            Thread.sleep(100); 
+            // Thread.sleep(100); 
             System.out.println("\nTodos los mensajes enviados exitosamente");
             
         } catch (ConnectException e) {

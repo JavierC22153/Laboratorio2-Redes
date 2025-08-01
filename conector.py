@@ -15,7 +15,7 @@ load_dotenv()
 HOST = os.getenv("HOST", "localhost")
 HAMMING_PORT = int(os.getenv("HAMMING_PORT", 8000))
 CRC_PORT = int(os.getenv("CRC_PORT", 9000))
-PROB_ERROR = float(os.getenv("ERROR_PROBABILITY", "0.01"))
+PROB_ERROR = float(os.getenv("ERROR_PROBABILITY", "0.2"))
 
 
 
