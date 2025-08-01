@@ -5,6 +5,7 @@ import sys
 from dotenv import load_dotenv
 from emisorhamming import hamming_codificar
 from receptorcrc32 import procesar_trama
+import time
 
 # ========================
 # Cargar configuración desde .env
@@ -42,29 +43,246 @@ def aplicar_ruido(bits, probabilidad):
     )
 
 # ========================
-# MODO EMISOR
+# FUNCIONES AUXILIARES
 # ========================
-def modo_emisor():
-    print("=== MODO EMISOR (Sólo Hamming) ===")
-    mensaje = input("Ingrese el mensaje a enviar: ")
+def leer_mensajes_archivo(ruta_archivo):
+    """Lee mensajes desde un archivo de texto, uno por línea."""
+    try:
+        with open(ruta_archivo, 'r', encoding='utf-8') as archivo:
+            mensajes = [linea.strip() for linea in archivo if linea.strip()]
+        return mensajes
+    except FileNotFoundError:
+        print(f"Error: No se encontró el archivo '{ruta_archivo}'")
+        return None
+    except Exception as e:
+        print(f"Error al leer el archivo: {e}")
+        return None
 
+def enviar_mensaje(mensaje, numero_mensaje=None):
+    """Envía un mensaje individual usando Hamming."""
     binario = codificar_ascii_binario(mensaje)
     trama = hamming_codificar(binario)
     puerto = HAMMING_PORT
-
+    
     trama_ruido = aplicar_ruido(trama, PROB_ERROR)
-
+    
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.connect((HOST, puerto))
             s.sendall(trama_ruido.encode())
-        print(f"Mensaje enviado correctamente usando Hamming.")
-        print("Mensaje original:", mensaje)
+        
+        prefijo = f"Mensaje {numero_mensaje}: " if numero_mensaje else "Mensaje: "
+        print(f"\n{prefijo}'{mensaje}' enviado correctamente.")
         print("Trama codificada:", trama)
         print("Trama con ruido:", trama_ruido)
+        return True
     except ConnectionRefusedError:
         print(f"No se pudo conectar al receptor en el puerto {puerto}.")
         print("Asegúrate de que el receptor Hamming esté corriendo.")
+        return False
+
+def enviar_mensaje_conexion_persistente(socket_conn, mensaje, numero_mensaje=None):
+    """Envía un mensaje usando una conexión existente."""
+    binario = codificar_ascii_binario(mensaje)
+    trama = hamming_codificar(binario)
+    
+    trama_ruido = aplicar_ruido(trama, PROB_ERROR)
+    
+    try:
+        socket_conn.sendall(trama_ruido.encode())
+        
+        prefijo = f"Mensaje {numero_mensaje}: " if numero_mensaje else "Mensaje: "
+        print(f"\n{prefijo}'{mensaje}' enviado correctamente.")
+        print("Trama codificada:", trama)
+        print("Trama con ruido:", trama_ruido)
+        return True
+    except Exception as e:
+        print(f"Error al enviar mensaje: {e}")
+        return False
+
+# ========================
+# MODO EMISOR
+# ========================
+def modo_emisor():
+    print("=== MODO EMISOR (Sólo Hamming) ===")
+    print("Opciones:")
+    print("1. Ingresar mensaje manualmente")
+    print("2. Cargar mensajes desde archivo de texto")
+    print("3. Modo interactivo (múltiples mensajes en una conexión)")
+    
+    opcion = input("Seleccione una opción (1, 2 o 3): ").strip()
+    
+    if opcion == "1":
+        # Modo manual original
+        mensaje = input("Ingrese el mensaje a enviar: ")
+        enviar_mensaje(mensaje)
+    
+    elif opcion == "2":
+        # Modo archivo
+        ruta_archivo = input("Ingrese la ruta del archivo de texto: ").strip()
+        
+        # Quitar comillas si las hay
+        if ruta_archivo.startswith('"') and ruta_archivo.endswith('"'):
+            ruta_archivo = ruta_archivo[1:-1]
+        elif ruta_archivo.startswith("'") and ruta_archivo.endswith("'"):
+            ruta_archivo = ruta_archivo[1:-1]
+        
+        mensajes = leer_mensajes_archivo(ruta_archivo)
+        
+        if mensajes is None:
+            return
+        
+        if not mensajes:
+            print("El archivo está vacío o no contiene mensajes válidos.")
+            return
+        
+        print(f"\nSe encontraron {len(mensajes)} mensajes en el archivo.")
+        print("¿Desea enviar todos los mensajes? (s/n): ", end="")
+        confirmar = input().strip().lower()
+        
+        if confirmar not in ['s', 'si', 'sí', 'y', 'yes']:
+            print("Operación cancelada.")
+            return
+        
+        # Preguntar por tipo de conexión
+        print("¿Desea usar una sola conexión para todos los mensajes? (s/n): ", end="")
+        usar_conexion_unica = input().strip().lower()
+        
+        if usar_conexion_unica in ['s', 'si', 'sí', 'y', 'yes']:
+            # Enviar con conexión persistente
+            enviar_mensajes_conexion_persistente(mensajes)
+        else:
+            # Enviar con conexiones separadas (modo original)
+            enviar_mensajes_conexiones_separadas(mensajes)
+    
+    elif opcion == "3":
+        # Modo interactivo
+        modo_interactivo()
+    
+    else:
+        print("Opción no válida. Seleccione 1, 2 o 3.")
+
+def enviar_mensajes_conexiones_separadas(mensajes):
+    """Envía mensajes usando conexiones separadas para cada mensaje."""
+    # Preguntar por intervalo entre envíos
+    print("¿Desea establecer un intervalo entre envíos? (s/n): ", end="")
+    usar_intervalo = input().strip().lower()
+    
+    intervalo = 0
+    if usar_intervalo in ['s', 'si', 'sí', 'y', 'yes']:
+        try:
+            intervalo = float(input("Ingrese el intervalo en segundos (ej: 1.5): "))
+        except ValueError:
+            print("Intervalo inválido, se usará 0 segundos.")
+            intervalo = 0
+    
+    # Enviar mensajes
+    exitosos = 0
+    fallidos = 0
+    
+    for i, mensaje in enumerate(mensajes, 1):
+        if enviar_mensaje(mensaje, i):
+            exitosos += 1
+        else:
+            fallidos += 1
+            break  # Detener si hay error de conexión
+        
+        # Esperar intervalo si no es el último mensaje
+        if i < len(mensajes) and intervalo > 0:
+            print(f"Esperando {intervalo} segundos...")
+            time.sleep(intervalo)
+    
+    print(f"\n=== RESUMEN ===")
+    print(f"Mensajes enviados exitosamente: {exitosos}")
+    print(f"Mensajes fallidos: {fallidos}")
+    print(f"Total de mensajes procesados: {exitosos + fallidos}")
+
+def enviar_mensajes_conexion_persistente(mensajes):
+    """Envía mensajes usando una sola conexión persistente."""
+    puerto = HAMMING_PORT
+    
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            print(f"Conectando al receptor en {HOST}:{puerto}...")
+            s.connect((HOST, puerto))
+            print("✅ Conexión establecida!")
+            
+            # Preguntar por intervalo entre envíos
+            print("¿Desea establecer un intervalo entre envíos? (s/n): ", end="")
+            usar_intervalo = input().strip().lower()
+            
+            intervalo = 0
+            if usar_intervalo in ['s', 'si', 'sí', 'y', 'yes']:
+                try:
+                    intervalo = float(input("Ingrese el intervalo en segundos (ej: 1.5): "))
+                except ValueError:
+                    print("Intervalo inválido, se usará 0 segundos.")
+                    intervalo = 0
+            
+            exitosos = 0
+            fallidos = 0
+            
+            for i, mensaje in enumerate(mensajes, 1):
+                if enviar_mensaje_conexion_persistente(s, mensaje, i):
+                    exitosos += 1
+                else:
+                    fallidos += 1
+                    break
+                
+                # Esperar intervalo si no es el último mensaje
+                if i < len(mensajes) and intervalo > 0:
+                    print(f"Esperando {intervalo} segundos...")
+                    time.sleep(intervalo)
+            
+            print(f"\n=== RESUMEN ===")
+            print(f"Mensajes enviados exitosamente: {exitosos}")
+            print(f"Mensajes fallidos: {fallidos}")
+            print(f"Total de mensajes procesados: {exitosos + fallidos}")
+            
+    except ConnectionRefusedError:
+        print(f"No se pudo conectar al receptor en el puerto {puerto}.")
+        print("Asegúrate de que el receptor esté corriendo.")
+    except Exception as e:
+        print(f"Error de conexión: {e}")
+
+def modo_interactivo():
+    """Modo interactivo para enviar múltiples mensajes en una conexión."""
+    puerto = HAMMING_PORT
+    
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            print(f"Conectando al receptor en {HOST}:{puerto}...")
+            s.connect((HOST, puerto))
+            print("✅ Conexión establecida!")
+            print("Escriba sus mensajes (escriba 'salir' para terminar):")
+            
+            mensaje_contador = 0
+            
+            while True:
+                mensaje = input("\nMensaje: ").strip()
+                
+                if mensaje.lower() in ['salir', 'exit', 'quit']:
+                    print("Cerrando conexión...")
+                    break
+                
+                if not mensaje:
+                    print("Mensaje vacío, intente de nuevo.")
+                    continue
+                
+                mensaje_contador += 1
+                if enviar_mensaje_conexion_persistente(s, mensaje, mensaje_contador):
+                    print("✅ Mensaje enviado correctamente.")
+                else:
+                    print("❌ Error al enviar mensaje.")
+                    break
+            
+            print(f"\nTotal de mensajes enviados: {mensaje_contador}")
+            
+    except ConnectionRefusedError:
+        print(f"No se pudo conectar al receptor en el puerto {puerto}.")
+        print("Asegúrate de que el receptor esté corriendo.")
+    except Exception as e:
+        print(f"Error de conexión: {e}")
 
 # ========================
 # MODO RECEPTOR
@@ -72,28 +290,73 @@ def modo_emisor():
 def modo_receptor():
     print("=== MODO RECEPTOR (Sólo CRC) ===")
     puerto = CRC_PORT
-
-    print(f"Escuchando en {HOST}:{puerto}...")
-
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind((HOST, puerto))
-        s.listen()
-        conn, addr = s.accept()
-        with conn:
-            print(f"Conexión entrante desde {addr}")
-            data = conn.recv(4096)
-            if not data:
-                print("No se recibió mensaje.")
-                return
-
-            trama_recibida = data.decode().strip()
-            print("Trama recibida:", trama_recibida)
-
-            valido, mensaje = procesar_trama(trama_recibida)
-            if valido:
-                print("Mensaje recibido correctamente (CRC):", mensaje)
-            else:
-                print("Error detectado en la trama CRC.")
+    
+    print(f"Iniciando servidor en {HOST}:{puerto}...")
+    print("Presione Ctrl+C para detener el servidor")
+    
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
+        # Permitir reutilizar la dirección
+        server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server_socket.bind((HOST, puerto))
+        server_socket.listen(5)
+        
+        try:
+            while True:
+                print(f"\nEsperando conexión en {HOST}:{puerto}...")
+                conn, addr = server_socket.accept()
+                
+                print(f"Cliente conectado desde {addr}")
+                print("Conexión establecida. Esperando mensajes...")
+                
+                mensaje_contador = 0
+                
+                try:
+                    while True:  # Bucle para múltiples mensajes en la misma conexión
+                        try:
+                            # Recibir datos con timeout para evitar bloqueo indefinido
+                            conn.settimeout(30.0)  # 30 segundos timeout
+                            data = conn.recv(4096)
+                            
+                            if not data:
+                                print("Cliente cerró la conexión.")
+                                break
+                            
+                            mensaje_contador += 1
+                            trama_recibida = data.decode().strip()
+                            
+                            print(f"\n--- MENSAJE {mensaje_contador} ---")
+                            print("Trama recibida:", trama_recibida)
+                            
+                            # Procesar la trama CRC
+                            valido, mensaje = procesar_trama(trama_recibida)
+                            if valido:
+                                print("✅ Mensaje recibido correctamente (CRC):", mensaje)
+                            else:
+                                print("❌ Error detectado en la trama CRC.")
+                            
+                            print(f"--- FIN MENSAJE {mensaje_contador} ---")
+                            print("Esperando siguiente mensaje...")
+                            
+                        except socket.timeout:
+                            print("Timeout esperando mensaje. Conexión cerrada por inactividad.")
+                            break
+                        except ConnectionResetError:
+                            print("Cliente desconectado inesperadamente.")
+                            break
+                        except Exception as e:
+                            print(f"Error al recibir mensaje: {e}")
+                            break
+                            
+                except Exception as e:
+                    print(f"Error en la conexión con {addr}: {e}")
+                finally:
+                    conn.close()
+                    print(f"Conexión con {addr} cerrada. Total mensajes recibidos: {mensaje_contador}")
+                    
+        except KeyboardInterrupt:
+            print(f"\n\nServidor detenido por el usuario.")
+        except Exception as e:
+            print(f"Error del servidor: {e}")
 
 # ========================
 # MAIN
@@ -102,9 +365,9 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Uso: python conector.py [emisor|receptor]")
         sys.exit(1)
-
+    
     modo = sys.argv[1].lower()
-
+    
     if modo == "emisor":
         modo_emisor()
     elif modo == "receptor":
